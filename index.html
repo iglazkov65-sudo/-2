@@ -205,26 +205,15 @@
 
     <div class="reviews-section">
         <div class="reviews-title">Відгуки учнів:</div>
-        <div id="reviews-list">Завантаження...</div>
+        <div id="reviews-list">Завантаження відгуків з хмари...</div>
     </div>
 </div>
 
-<script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-    import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, increment, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-
-    // Инициализация глобального хранилища данных
-    const firebaseConfig = {
-        apiKey: "AIzaSyDemoKeyOnlyReplaceIfNecessary",
-        projectId: "reviews-school-app",
-        firestoreDatabaseId: "(default)"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+<script>
+    // ВСТАВЬТЕ ССЫЛКУ С npoint.io В КАВЫЧКИ НИЖЕ:
+    const API_URL = "https://api.npoint.io/b509c05c5eb85c408620";
 
     let currentWork = 'tigrolovy';
-    let unsubscribe = null;
 
     const worksData = {
         tigrolovy: {
@@ -243,38 +232,26 @@
 
     function saveLikedPost(id) {
         const liked = getLikedPosts();
-        liked.push(id);
-        localStorage.setItem('liked_reviews', JSON.stringify(liked));
+        if (!liked.includes(id)) {
+            liked.push(id);
+            localStorage.setItem('liked_reviews', JSON.stringify(liked));
+        }
     }
 
-    window.switchWork = function(work) {
-        currentWork = work;
-        document.getElementById('btn-tigrolovy').classList.toggle('active', work === 'tigrolovy');
-        document.getElementById('btn-boyarynya').classList.toggle('active', work === 'boyarynya');
-        
-        document.getElementById('current-title').textContent = worksData[work].title;
-        document.getElementById('current-desc').textContent = worksData[work].desc;
-
-        listenToReviews();
-    };
-
-    function listenToReviews() {
-        if (unsubscribe) unsubscribe();
-
+    async function loadReviews() {
         const listContainer = document.getElementById('reviews-list');
-        const likedList = getLikedPosts();
+        try {
+            const response = await fetch(API_URL);
+            const data = await response.json();
+            const reviews = data[currentWork] || [];
+            const likedList = getLikedPosts();
 
-        // Считываем отзывы из локальной сети / хранилища
-        const storageKey = 'cloud_reviews_' + currentWork;
-        
-        const render = () => {
-            const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-            if (stored.length === 0) {
+            if (reviews.length === 0) {
                 listContainer.innerHTML = '<div class="empty-msg">Поки немає відгуків. Будьте першим!</div>';
                 return;
             }
 
-            listContainer.innerHTML = stored.map(r => {
+            listContainer.innerHTML = reviews.map(r => {
                 const isLiked = likedList.includes(r.id);
                 return `
                     <div class="review-card">
@@ -285,19 +262,29 @@
                         <div>${escapeHtml(r.comment)}</div>
                         <div class="review-footer">
                             <button class="like-btn" ${isLiked ? 'disabled' : ''} onclick="likeReview('${r.id}')">
-                                ❤️ ${r.likes || 0} ${isLiked ? '(Ви вже поставили)' : ''}
+                                ❤️ ${r.likes || 0} ${isLiked ? '(Ви вже лайкнули)' : ''}
                             </button>
                         </div>
                     </div>
                 `;
             }).join('');
-        };
-
-        render();
-        window._currentRender = render;
+        } catch (e) {
+            listContainer.innerHTML = '<div class="empty-msg" style="color: red;">Помилка підключення до бази даних. Перевірте посилання на npoint.io у коді!</div>';
+        }
     }
 
-    window.addReview = function(event) {
+    window.switchWork = function(work) {
+        currentWork = work;
+        document.getElementById('btn-tigrolovy').classList.toggle('active', work === 'tigrolovy');
+        document.getElementById('btn-boyarynya').classList.toggle('active', work === 'boyarynya');
+        
+        document.getElementById('current-title').textContent = worksData[work].title;
+        document.getElementById('current-desc').textContent = worksData[work].desc;
+
+        loadReviews();
+    };
+
+    window.addReview = async function(event) {
         event.preventDefault();
         const name = document.getElementById('name').value.trim();
         const rating = parseInt(document.getElementById('rating').value);
@@ -305,38 +292,67 @@
 
         if (!name || !comment) return;
 
-        const storageKey = 'cloud_reviews_' + currentWork;
-        const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-        
-        const newReview = {
-            id: 'rev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-            name: name,
-            rating: rating,
-            comment: comment,
-            likes: 0,
-            date: new Date().toISOString()
-        };
+        const submitBtn = document.getElementById('submit-btn');
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Публікація...";
 
-        stored.unshift(newReview);
-        localStorage.setItem(storageKey, JSON.stringify(stored));
+        try {
+            const res = await fetch(API_URL);
+            const data = await res.json();
+            
+            if (!data[currentWork]) data[currentWork] = [];
 
-        document.getElementById('comment').value = '';
-        if (window._currentRender) window._currentRender();
+            const newReview = {
+                id: 'rev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                name: name,
+                rating: rating,
+                comment: comment,
+                likes: 0,
+                date: new Date().toISOString()
+            };
+
+            data[currentWork].unshift(newReview);
+
+            await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            document.getElementById('comment').value = '';
+            await loadReviews();
+        } catch (e) {
+            alert('Поשлка при публікації. Спробуйте ще раз.');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Опублікувати відгук";
+        }
     };
 
-    window.likeReview = function(id) {
+    window.likeReview = async function(id) {
         const likedList = getLikedPosts();
         if (likedList.includes(id)) return;
 
-        const storageKey = 'cloud_reviews_' + currentWork;
-        const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-        
-        const target = stored.find(r => r.id === id);
-        if (target) {
-            target.likes = (target.likes || 0) + 1;
-            saveLikedPost(id);
-            localStorage.setItem(storageKey, JSON.stringify(stored));
-            if (window._currentRender) window._currentRender();
+        try {
+            const res = await fetch(API_URL);
+            const data = await res.json();
+            const reviews = data[currentWork] || [];
+            
+            const target = reviews.find(r => r.id === id);
+            if (target) {
+                target.likes = (target.likes || 0) + 1;
+                saveLikedPost(id);
+
+                await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                await loadReviews();
+            }
+        } catch (e) {
+            console.error(e);
         }
     };
 
@@ -346,7 +362,10 @@
         });
     }
 
-    listenToReviews();
+    // Загрузка при открытии
+    loadReviews();
+    // Автообновление каждые 5 секунд, чтобы видеть новые ответы с телефона/компьютера
+    setInterval(loadReviews, 5000);
 </script>
 
 </body>
