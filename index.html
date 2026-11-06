@@ -102,10 +102,6 @@
         .submit-btn:hover {
             background: #27ae60;
         }
-        .submit-btn:disabled {
-            background: #95a5a6;
-            cursor: not-allowed;
-        }
         .reviews-section {
             margin-top: 30px;
         }
@@ -168,14 +164,6 @@
             font-style: italic;
             padding: 20px 0;
         }
-        .error-msg {
-            color: #c0392b;
-            background: #fadbd8;
-            padding: 10px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            font-size: 14px;
-        }
     </style>
 </head>
 <body>
@@ -192,8 +180,6 @@
         <div class="work-title" id="current-title">Іван Багряний — «Тигролови»</div>
         <div class="work-author" id="current-desc">Пригодницький роман про волю, честь та виживання в тайзі.</div>
     </div>
-
-    <div id="error-container"></div>
 
     <form id="review-form" onsubmit="addReview(event)">
         <div class="form-group">
@@ -224,7 +210,7 @@
 </div>
 
 <script>
-    // Ваша ссылка на npoint.io (без буквы T вначале)
+    // ВСТАВЬТЕ ССЫЛКУ С npoint.io В КАВЫЧКИ НИЖЕ:
     const API_URL = "https://api.npoint.io/b509c05c5eb85c408620";
 
     let currentWork = 'tigrolovy';
@@ -239,15 +225,6 @@
             desc: "Драматична поема про долю України, патріотизм та вибір."
         }
     };
-
-    function showGlobalError(text) {
-        const errContainer = document.getElementById('error-container');
-        errContainer.innerHTML = `<div class="error-msg">⚠️ ${text}</div>`;
-    }
-
-    function clearGlobalError() {
-        document.getElementById('error-container').innerHTML = '';
-    }
 
     function getLikedPosts() {
         return JSON.parse(localStorage.getItem('liked_reviews') || '[]');
@@ -265,16 +242,12 @@
         const listContainer = document.getElementById('reviews-list');
         try {
             const response = await fetch(API_URL);
-            if (!response.ok) throw new Error(`Помилка сервера: ${response.status}`);
-            
             const data = await response.json();
-            clearGlobalError();
-
-            const reviews = (data && data[currentWork]) ? data[currentWork] : [];
+            const reviews = data[currentWork] || [];
             const likedList = getLikedPosts();
 
             if (reviews.length === 0) {
-                listContainer.innerHTML = '<div class="empty-msg">Поки немає відгуків для цього твору. Будьте першим!</div>';
+                listContainer.innerHTML = '<div class="empty-msg">Поки немає відгуків. Будьте першим!</div>';
                 return;
             }
 
@@ -283,10 +256,10 @@
                 return `
                     <div class="review-card">
                         <div class="review-header">
-                            <span class="reviewer-name">${escapeHtml(r.name || 'Анонім')}</span>
-                            <span class="stars">${'★'.repeat(r.rating || 5)}${'☆'.repeat(5 - (r.rating || 5))}</span>
+                            <span class="reviewer-name">${escapeHtml(r.name)}</span>
+                            <span class="stars">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</span>
                         </div>
-                        <div>${escapeHtml(r.comment || '')}</div>
+                        <div>${escapeHtml(r.comment)}</div>
                         <div class="review-footer">
                             <button class="like-btn" ${isLiked ? 'disabled' : ''} onclick="likeReview('${r.id}')">
                                 ❤️ ${r.likes || 0} ${isLiked ? '(Ви вже лайкнули)' : ''}
@@ -296,8 +269,7 @@
                 `;
             }).join('');
         } catch (e) {
-            console.error(e);
-            listContainer.innerHTML = '<div class="empty-msg" style="color: red;">Не вдалося завантажити відгуки. Перевірте з'єднання.</div>';
+            listContainer.innerHTML = '<div class="empty-msg" style="color: red;">Помилка підключення до бази даних. Перевірте посилання на npoint.io у коді!</div>';
         }
     }
 
@@ -323,19 +295,12 @@
         const submitBtn = document.getElementById('submit-btn');
         submitBtn.disabled = true;
         submitBtn.textContent = "Публікація...";
-        clearGlobalError();
 
         try {
-            // Сначала получаем актуальные данные с сервера
             const res = await fetch(API_URL);
-            let data = {};
-            if (res.ok) {
-                data = await res.json();
-            }
-
-            if (!data) data = {};
-            if (!data.tigrolovy) data.tigrolovy = [];
-            if (!data.boyarynya) data.boyarynya = [];
+            const data = await res.json();
+            
+            if (!data[currentWork]) data[currentWork] = [];
 
             const newReview = {
                 id: 'rev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
@@ -346,27 +311,18 @@
                 date: new Date().toISOString()
             };
 
-            // Добавляем отзыв в массив текущего произведения
             data[currentWork].unshift(newReview);
 
-            // Отправляем обновленные данные обратно в облако
-            const updateRes = await fetch(API_URL, {
-                method: 'PUT',
+            await fetch(API_URL, {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
 
-            if (!updateRes.ok) {
-                throw new Error(`Помилка збереження на сервері (статус ${updateRes.status})`);
-            }
-
-            // Очищаем форму и обновляем список
-            document.getElementById('name').value = '';
             document.getElementById('comment').value = '';
             await loadReviews();
         } catch (e) {
-            console.error(e);
-            showGlobalError("Не вдалося опублікувати відгук. Перевірте, чи правильно збережена структура на npoint.io (мають бути поля 'tigrolovy' та 'boyarynya').");
+            alert('Поשлка при публікації. Спробуйте ще раз.');
         } finally {
             submitBtn.disabled = false;
             submitBtn.textContent = "Опублікувати відгук";
@@ -379,19 +335,16 @@
 
         try {
             const res = await fetch(API_URL);
-            if (!res.ok) return;
-            let data = await res.json();
+            const data = await res.json();
+            const reviews = data[currentWork] || [];
             
-            if (!data) data = {};
-            if (!data[currentWork]) data[currentWork] = [];
-            
-            const target = data[currentWork].find(r => r.id === id);
+            const target = reviews.find(r => r.id === id);
             if (target) {
                 target.likes = (target.likes || 0) + 1;
                 saveLikedPost(id);
 
                 await fetch(API_URL, {
-                    method: 'PUT',
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
@@ -409,11 +362,10 @@
         });
     }
 
-    // Первоначальная загрузка
+    // Загрузка при открытии
     loadReviews();
-    
-    // Автообновление каждые 4 секунды
-    setInterval(loadReviews, 4000);
+    // Автообновление каждые 5 секунд, чтобы видеть новые ответы с телефона/компьютера
+    setInterval(loadReviews, 5000);
 </script>
 
 </body>
