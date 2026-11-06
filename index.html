@@ -102,6 +102,10 @@
         .submit-btn:hover {
             background: #27ae60;
         }
+        .submit-btn:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
         .reviews-section {
             margin-top: 30px;
         }
@@ -164,6 +168,14 @@
             font-style: italic;
             padding: 20px 0;
         }
+        .error-msg {
+            color: #c0392b;
+            background: #fadbd8;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -180,6 +192,8 @@
         <div class="work-title" id="current-title">Іван Багряний — «Тигролови»</div>
         <div class="work-author" id="current-desc">Пригодницький роман про волю, честь та виживання в тайзі.</div>
     </div>
+
+    <div id="error-container"></div>
 
     <form id="review-form" onsubmit="addReview(event)">
         <div class="form-group">
@@ -210,7 +224,7 @@
 </div>
 
 <script>
-    // Ваша ссылка на npoint.io (убедитесь, что она здесь прописана правильно без буквы T)
+    // Ваша ссылка на npoint.io (без буквы T вначале)
     const API_URL = "https://api.npoint.io/b509c05c5eb85c408620";
 
     let currentWork = 'tigrolovy';
@@ -225,6 +239,15 @@
             desc: "Драматична поема про долю України, патріотизм та вибір."
         }
     };
+
+    function showGlobalError(text) {
+        const errContainer = document.getElementById('error-container');
+        errContainer.innerHTML = `<div class="error-msg">⚠️ ${text}</div>`;
+    }
+
+    function clearGlobalError() {
+        document.getElementById('error-container').innerHTML = '';
+    }
 
     function getLikedPosts() {
         return JSON.parse(localStorage.getItem('liked_reviews') || '[]');
@@ -242,9 +265,11 @@
         const listContainer = document.getElementById('reviews-list');
         try {
             const response = await fetch(API_URL);
-            const data = await response.json();
+            if (!response.ok) throw new Error(`Помилка сервера: ${response.status}`);
             
-            // Защита, если в облаке пусто или нет нужного раздела
+            const data = await response.json();
+            clearGlobalError();
+
             const reviews = (data && data[currentWork]) ? data[currentWork] : [];
             const likedList = getLikedPosts();
 
@@ -271,7 +296,8 @@
                 `;
             }).join('');
         } catch (e) {
-            listContainer.innerHTML = '<div class="empty-msg" style="color: red;">Помилка завантаження. Спробуйте оновити сторінку.</div>';
+            console.error(e);
+            listContainer.innerHTML = '<div class="empty-msg" style="color: red;">Не вдалося завантажити відгуки. Перевірте з'єднання.</div>';
         }
     }
 
@@ -297,11 +323,16 @@
         const submitBtn = document.getElementById('submit-btn');
         submitBtn.disabled = true;
         submitBtn.textContent = "Публікація...";
+        clearGlobalError();
 
         try {
+            // Сначала получаем актуальные данные с сервера
             const res = await fetch(API_URL);
-            let data = await res.json();
-            
+            let data = {};
+            if (res.ok) {
+                data = await res.json();
+            }
+
             if (!data) data = {};
             if (!data.tigrolovy) data.tigrolovy = [];
             if (!data.boyarynya) data.boyarynya = [];
@@ -315,19 +346,27 @@
                 date: new Date().toISOString()
             };
 
-            // Добавляем отзыв именно в массив текущего произведения
+            // Добавляем отзыв в массив текущего произведения
             data[currentWork].unshift(newReview);
 
-            await fetch(API_URL, {
-                method: 'PUT', // Используем PUT для полной надежной перезаписи структуры в npoint
+            // Отправляем обновленные данные обратно в облако
+            const updateRes = await fetch(API_URL, {
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
 
+            if (!updateRes.ok) {
+                throw new Error(`Помилка збереження на сервері (статус ${updateRes.status})`);
+            }
+
+            // Очищаем форму и обновляем список
+            document.getElementById('name').value = '';
             document.getElementById('comment').value = '';
             await loadReviews();
         } catch (e) {
-            alert('Помилка при публікації. Спробуйте ще раз.');
+            console.error(e);
+            showGlobalError("Не вдалося опублікувати відгук. Перевірте, чи правильно збережена структура на npoint.io (мають бути поля 'tigrolovy' та 'boyarynya').");
         } finally {
             submitBtn.disabled = false;
             submitBtn.textContent = "Опублікувати відгук";
@@ -340,6 +379,7 @@
 
         try {
             const res = await fetch(API_URL);
+            if (!res.ok) return;
             let data = await res.json();
             
             if (!data) data = {};
@@ -372,7 +412,7 @@
     // Первоначальная загрузка
     loadReviews();
     
-    // Автообновление каждые 4 секунды (чтобы у всех учнів и у вас в реальном времени подтягивались новые записи)
+    // Автообновление каждые 4 секунды
     setInterval(loadReviews, 4000);
 </script>
 
