@@ -149,14 +149,9 @@
             gap: 5px;
             transition: transform 0.2s, background 0.2s;
         }
-        .like-btn:hover:not(:disabled) {
+        .like-btn:hover {
             background: #c0392b;
             transform: scale(1.05);
-        }
-        .like-btn:disabled {
-            background: #bdc3c7;
-            cursor: not-allowed;
-            opacity: 0.7;
         }
         .empty-msg {
             text-align: center;
@@ -200,31 +195,17 @@
             <label for="comment">Ваш відгук:</label>
             <textarea id="comment" required placeholder="Напишіть ваші враження від твору..."></textarea>
         </div>
-        <button type="submit" class="submit-btn" id="submit-btn">Опублікувати відгук</button>
+        <button type="submit" class="submit-btn">Опублікувати відгук</button>
     </form>
 
     <div class="reviews-section">
         <div class="reviews-title">Відгуки учнів:</div>
-        <div id="reviews-list">Завантаження...</div>
+        <div id="reviews-list"></div>
     </div>
 </div>
 
-<script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-    import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, increment, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-
-    // Инициализация глобального хранилища данных
-    const firebaseConfig = {
-        apiKey: "AIzaSyDemoKeyOnlyReplaceIfNecessary",
-        projectId: "reviews-school-app",
-        firestoreDatabaseId: "(default)"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-
+<script>
     let currentWork = 'tigrolovy';
-    let unsubscribe = null;
 
     const worksData = {
         tigrolovy: {
@@ -237,17 +218,33 @@
         }
     };
 
-    function getLikedPosts() {
-        return JSON.parse(localStorage.getItem('liked_reviews') || '[]');
+    function loadReviews() {
+        const stored = localStorage.getItem('reviews_' + currentWork);
+        const reviews = stored ? JSON.parse(stored) : [];
+        const listContainer = document.getElementById('reviews-list');
+
+        if (reviews.length === 0) {
+            listContainer.innerHTML = '<div class="empty-msg">Поки немає відгуків. Будьте першим, хто залишить свій відгук!</div>';
+            return;
+        }
+
+        listContainer.innerHTML = reviews.map((r, index) => `
+            <div class="review-card">
+                <div class="review-header">
+                    <span class="reviewer-name">${escapeHtml(r.name)}</span>
+                    <span class="stars">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</span>
+                </div>
+                <div>${escapeHtml(r.comment)}</div>
+                <div class="review-footer">
+                    <button class="like-btn" onclick="likeReview(${index})">
+                        ❤️ ${r.likes || 0}
+                    </button>
+                </div>
+            </div>
+        `).join('');
     }
 
-    function saveLikedPost(id) {
-        const liked = getLikedPosts();
-        liked.push(id);
-        localStorage.setItem('liked_reviews', JSON.stringify(liked));
-    }
-
-    window.switchWork = function(work) {
+    function switchWork(work) {
         currentWork = work;
         document.getElementById('btn-tigrolovy').classList.toggle('active', work === 'tigrolovy');
         document.getElementById('btn-boyarynya').classList.toggle('active', work === 'boyarynya');
@@ -255,49 +252,10 @@
         document.getElementById('current-title').textContent = worksData[work].title;
         document.getElementById('current-desc').textContent = worksData[work].desc;
 
-        listenToReviews();
-    };
-
-    function listenToReviews() {
-        if (unsubscribe) unsubscribe();
-
-        const listContainer = document.getElementById('reviews-list');
-        const likedList = getLikedPosts();
-
-        // Считываем отзывы из локальной сети / хранилища
-        const storageKey = 'cloud_reviews_' + currentWork;
-        
-        const render = () => {
-            const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-            if (stored.length === 0) {
-                listContainer.innerHTML = '<div class="empty-msg">Поки немає відгуків. Будьте першим!</div>';
-                return;
-            }
-
-            listContainer.innerHTML = stored.map(r => {
-                const isLiked = likedList.includes(r.id);
-                return `
-                    <div class="review-card">
-                        <div class="review-header">
-                            <span class="reviewer-name">${escapeHtml(r.name)}</span>
-                            <span class="stars">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</span>
-                        </div>
-                        <div>${escapeHtml(r.comment)}</div>
-                        <div class="review-footer">
-                            <button class="like-btn" ${isLiked ? 'disabled' : ''} onclick="likeReview('${r.id}')">
-                                ❤️ ${r.likes || 0} ${isLiked ? '(Ви вже поставили)' : ''}
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        };
-
-        render();
-        window._currentRender = render;
+        loadReviews();
     }
 
-    window.addReview = function(event) {
+    function addReview(event) {
         event.preventDefault();
         const name = document.getElementById('name').value.trim();
         const rating = parseInt(document.getElementById('rating').value);
@@ -305,40 +263,26 @@
 
         if (!name || !comment) return;
 
-        const storageKey = 'cloud_reviews_' + currentWork;
-        const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+        const stored = localStorage.getItem('reviews_' + currentWork);
+        const reviews = stored ? JSON.parse(stored) : [];
         
-        const newReview = {
-            id: 'rev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-            name: name,
-            rating: rating,
-            comment: comment,
-            likes: 0,
-            date: new Date().toISOString()
-        };
-
-        stored.unshift(newReview);
-        localStorage.setItem(storageKey, JSON.stringify(stored));
+        reviews.unshift({ name, rating, comment, likes: 0, date: new Date().toISOString() });
+        localStorage.setItem('reviews_' + currentWork, JSON.stringify(reviews));
 
         document.getElementById('comment').value = '';
-        if (window._currentRender) window._currentRender();
-    };
+        loadReviews();
+    }
 
-    window.likeReview = function(id) {
-        const likedList = getLikedPosts();
-        if (likedList.includes(id)) return;
-
-        const storageKey = 'cloud_reviews_' + currentWork;
-        const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    function likeReview(index) {
+        const stored = localStorage.getItem('reviews_' + currentWork);
+        const reviews = stored ? JSON.parse(stored) : [];
         
-        const target = stored.find(r => r.id === id);
-        if (target) {
-            target.likes = (target.likes || 0) + 1;
-            saveLikedPost(id);
-            localStorage.setItem(storageKey, JSON.stringify(stored));
-            if (window._currentRender) window._currentRender();
+        if (reviews[index]) {
+            reviews[index].likes = (reviews[index].likes || 0) + 1;
+            localStorage.setItem('reviews_' + currentWork, JSON.stringify(reviews));
+            loadReviews();
         }
-    };
+    }
 
     function escapeHtml(text) {
         return text.replace(/[&<>"']/g, function(m) {
@@ -346,7 +290,7 @@
         });
     }
 
-    listenToReviews();
+    loadReviews();
 </script>
 
 </body>
